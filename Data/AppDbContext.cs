@@ -13,8 +13,6 @@ namespace MonitoringServiceAPI.Data
 
         public DbSet<FileDataSourceConfig> FileDataSourceConfigs { get; set; }
 
-        public DbSet<FileDataSourceConfig> DataSourceConfigs { get; set; }
-
         public DbSet<UploadQueue> UploadQueues { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
