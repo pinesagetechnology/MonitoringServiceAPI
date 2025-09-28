@@ -6,9 +6,11 @@ namespace MonitoringServiceAPI.Services
 {
     public interface IUploadQueueService
     {
+        Task<IEnumerable<UploadQueue>> GetAllUploadsAsync();
         Task<IEnumerable<UploadQueue>> GetPendingUploadsAsync();
         Task<IEnumerable<UploadQueue>> GetFailedUploadsAsync();
         Task<object> GetQueueSummaryAsync();
+        Task ReprocessItem(int id);
     }
 
     public class UploadQueueService : IUploadQueueService
@@ -53,6 +55,27 @@ namespace MonitoringServiceAPI.Services
             };
 
             return result;
+        }
+
+        public async Task ReprocessItem(int id)
+        {
+            var itemToReprocess = await _repository.GetByIdAsync(id);
+
+            if(itemToReprocess == null)
+            {
+                _logger.LogWarning($"UploadQueue item with ID {id} not found for reprocessing.");
+                throw new KeyNotFoundException($"UploadQueue item with ID {id} not found.");
+            }
+
+            itemToReprocess.Status = FileStatus.Pending;
+            itemToReprocess.AttemptCount = 0;
+
+            await _repository.UpdateAsync(itemToReprocess);
+        }
+
+        public async Task<IEnumerable<UploadQueue>> GetAllUploadsAsync()
+        {
+            return await _repository.GetAllAsync();
         }
     }
 }

@@ -9,6 +9,7 @@
             services.AddTransient<IConfigurationService, ConfigurationService>();
             services.AddTransient<IAzureStorageService, AzureStorageService>();
             services.AddTransient<IDataSourceService, DataSourceService>();
+            services.AddTransient<IAPIDataSourceService, APIDataSourceService>();
 
             return services;
 
