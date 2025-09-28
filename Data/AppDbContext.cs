@@ -17,6 +17,10 @@ namespace MonitoringServiceAPI.Data
 
         public DbSet<UploadQueue> UploadQueues { get; set; }
 
+        public DbSet<FileMonitorServiceHeartBeat> FileMonitorServiceHeartBeats { get; set; }
+
+        public DbSet<APIMonitorServiceHeartBeat> APIMonitorServiceHeartBeats { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);

@@ -10,6 +10,7 @@
             services.AddTransient<IAzureStorageService, AzureStorageService>();
             services.AddTransient<IDataSourceService, DataSourceService>();
             services.AddTransient<IAPIDataSourceService, APIDataSourceService>();
+            services.AddTransient<IHeartbeatService, HeartbeatService>();
 
             return services;
 
