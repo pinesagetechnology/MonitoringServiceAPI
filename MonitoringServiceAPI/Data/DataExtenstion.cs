@@ -1,5 +1,6 @@
 ﻿using FileMonitorWorkerService.Data.Repository;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace MonitoringServiceAPI.Data
 {
@@ -7,18 +8,29 @@ namespace MonitoringServiceAPI.Data
     {
         public static IServiceCollection RegisterDataServices(this IServiceCollection services, IConfiguration configuration)
         {
-            var connectionString = configuration.GetConnectionString("DefaultConnection")
+            var fileConn = configuration.GetConnectionString("DefaultConnection")
                 ?? throw new InvalidOperationException("DefaultConnection not found");
+
+            var apiConn = configuration.GetConnectionString("ApiMonitorConnection")
+                ?? fileConn; // fallback to file conn if not provided
 
             services.AddDbContext<AppDbContext>(options =>
             {
-                options.UseSqlite(connectionString);
+                options.UseSqlite(fileConn);
                 options.EnableSensitiveDataLogging(false);
                 options.EnableDetailedErrors(true);
             });
 
-            // Register repositories
-            services.AddTransient(typeof(IRepository<>), typeof(Repository<>));
+            services.AddDbContext<ApiDbContext>(options =>
+            {
+                options.UseSqlite(apiConn);
+                options.EnableSensitiveDataLogging(false);
+                options.EnableDetailedErrors(true);
+            });
+
+            // Register repositories as keyed services so we can choose DbContext per usage
+            services.AddKeyedTransient(typeof(IRepository<>), "file", typeof(Repository<>));
+            services.AddKeyedTransient(typeof(IRepository<>), "api", typeof(ApiRepository<>));
 
             return services;
         }

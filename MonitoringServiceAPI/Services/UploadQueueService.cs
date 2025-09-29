@@ -1,4 +1,5 @@
 ﻿using FileMonitorWorkerService.Data.Repository;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using MonitoringServiceAPI.Models;
 
@@ -18,7 +19,7 @@ namespace MonitoringServiceAPI.Services
         private readonly ILogger<UploadQueueService> _logger;
         private readonly IRepository<UploadQueue> _repository;
         public UploadQueueService( ILogger<UploadQueueService> logger,
-            IRepository<UploadQueue> repository)
+            [FromKeyedServices("file")] IRepository<UploadQueue> repository)
         {
             _logger = logger;
             _repository = repository;

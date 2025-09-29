@@ -1,4 +1,5 @@
 using FileMonitorWorkerService.Data.Repository;
+using Microsoft.Extensions.DependencyInjection;
 using MonitoringServiceAPI.Models;
 
 namespace MonitoringServiceAPI.Services
@@ -8,7 +9,7 @@ namespace MonitoringServiceAPI.Services
         private readonly IRepository<APIDataSourceConfig> _repository;
         private readonly ILogger<APIDataSourceService> _logger;
 
-        public APIDataSourceService(IRepository<APIDataSourceConfig> repository, 
+        public APIDataSourceService([FromKeyedServices("api")] IRepository<APIDataSourceConfig> repository, 
             ILogger<APIDataSourceService> logger)
         {
             _repository = repository;

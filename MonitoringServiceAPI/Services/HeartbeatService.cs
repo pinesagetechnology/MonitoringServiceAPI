@@ -1,4 +1,5 @@
 ﻿using FileMonitorWorkerService.Data.Repository;
+using Microsoft.Extensions.DependencyInjection;
 using MonitoringServiceAPI.Models;
 
 namespace MonitoringServiceAPI.Services
@@ -15,8 +16,8 @@ namespace MonitoringServiceAPI.Services
         private readonly IRepository<APIMonitorServiceHeartBeat> _apiHeartbeatRepository;
 
         public HeartbeatService(
-            IRepository<FileMonitorServiceHeartBeat> fileHeartbeatRepository,
-            IRepository<APIMonitorServiceHeartBeat> apiHeartbeatRepository
+            [FromKeyedServices("file")] IRepository<FileMonitorServiceHeartBeat> fileHeartbeatRepository,
+            [FromKeyedServices("api")] IRepository<APIMonitorServiceHeartBeat> apiHeartbeatRepository
             )
         {
             _apiHeartbeatRepository = apiHeartbeatRepository;

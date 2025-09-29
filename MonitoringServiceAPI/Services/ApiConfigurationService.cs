@@ -1,12 +1,12 @@
-﻿using FileMonitorWorkerService.Data.Repository;
+using FileMonitorWorkerService.Data.Repository;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
+using Microsoft.EntityFrameworkCore;
+using MonitoringServiceAPI.Data;
 using MonitoringServiceAPI.Models;
-using System.Text.Json;
 
 namespace MonitoringServiceAPI.Services
 {
-    public interface IConfigurationService
+    public interface IApiConfigurationService
     {
         Task<IEnumerable<Configuration>> GetAllAsync();
         Task<string?> GetValueAsync(string key);
@@ -14,57 +14,61 @@ namespace MonitoringServiceAPI.Services
         Task SetValueAsync(string key, string value, string? description = null, string? category = null);
     }
 
-    public class ConfigurationService : IConfigurationService
+    public class ApiConfigurationService : IApiConfigurationService
     {
         private readonly IRepository<Configuration> _repository;
         private readonly ILogger<ConfigurationService> _logger;
 
-        public ConfigurationService([FromKeyedServices("file")] IRepository<Configuration> repository, ILogger<ConfigurationService> logger)
+        public ApiConfigurationService([FromKeyedServices("api")] IRepository<Configuration> repository, 
+            ILogger<ConfigurationService> logger)
         {
-            _logger = logger;
             _repository = repository;
+            _logger = logger;
         }
 
         public async Task<IEnumerable<Configuration>> GetAllAsync()
         {
-            _logger.LogDebug("Getting all configuration values");
+            _logger.LogDebug("Getting all API configuration values");
 
             var configs = await _repository.GetAllAsync();
-
-            _logger.LogDebug($"Retrieved {configs.Count()} configuration values");
+            
+            _logger.LogDebug($"Retrieved {configs.Count()} API configuration values");
 
             return configs
                 .OrderBy(c => c.Category)
-                .ThenBy(c => c.Key)
-                .ToList();
+                .ThenBy(c => c.Key);
         }
 
         public async Task<string?> GetValueAsync(string key)
         {
-            _logger.LogDebug("Getting configuration value for key: {Key}", key);
+            _logger.LogDebug("Getting API configuration value for key: {Key}", key);
+
             var config = await _repository.GetByKeyAsync<string>(key);
 
             if (config != null)
             {
-                _logger.LogDebug("Found configuration value for key {Key}: {Value}", key, config.Value);
+                _logger.LogDebug("Found API configuration value for key {Key}: {Value}", key, config.Value);
+
                 return config.Value;
             }
             else
             {
-                _logger.LogDebug("Configuration key {Key} not found", key);
+                _logger.LogDebug("API Configuration key {Key} not found", key);
+
                 return null;
             }
         }
 
         public async Task<T?> GetValueAsync<T>(string key)
         {
-            _logger.LogDebug("Getting typed configuration value for key: {Key}, type: {Type}", key, typeof(T));
+            _logger.LogDebug("Getting typed API configuration value for key: {Key}, type: {Type}", key, typeof(T));
 
             var config = await _repository.GetByKeyAsync<string>(key);
 
             if (config == null || string.IsNullOrEmpty(config.Value))
             {
-                _logger.LogDebug("Configuration value for key {Key} is null or empty, returning default", key);
+                _logger.LogDebug("API Configuration value for key {Key} is null or empty, returning default", key);
+
                 return default(T);
             }
 
@@ -76,7 +80,8 @@ namespace MonitoringServiceAPI.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error converting configuration value for key {Key} to type {Type}", key, typeof(T));
+                _logger.LogError(ex, "Error converting API configuration value for key {Key} to type {Type}", key, typeof(T));
+
                 return default(T);
             }
         }
@@ -109,6 +114,7 @@ namespace MonitoringServiceAPI.Services
                 await _repository.AddAsync(config);
             }
         }
-
     }
 }
+
+
