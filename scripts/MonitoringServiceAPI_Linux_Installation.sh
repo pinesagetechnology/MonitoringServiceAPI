@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
 
-# APIMonitorWorkerService - Linux Installation Script
-# This script installs prerequisites and sets up the APIMonitorWorkerService on Linux
+# MonitoringServiceAPI - Linux Installation Script
+# This script installs prerequisites and sets up the MonitoringServiceAPI on Linux
 
 set -e  # Exit on any error
 
 # Default configuration
-INSTALL_PATH="/opt/apimonitor"
+INSTALL_PATH="/opt/monitoringapi"
 DATA_PATH=""
-SERVICE_NAME="apimonitor"
-SERVICE_USER="apimonitor"
+SERVICE_NAME="monitoringapi"
+SERVICE_USER="monitoringapi"
 SKIP_DOTNET=false
 VERBOSE=false
 INTERACTIVE=true
+API_PORT=5000
 
 # Colors for output
 RED='\033[0;31m'
@@ -32,6 +33,10 @@ while [[ $# -gt 0 ]]; do
             DATA_PATH="$2"
             shift 2
             ;;
+        --api-port)
+            API_PORT="$2"
+            shift 2
+            ;;
         --skip-dotnet)
             SKIP_DOTNET=true
             shift
@@ -45,12 +50,13 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         -h|--help)
-            echo "APIMonitorWorkerService Linux Installation Script"
+            echo "MonitoringServiceAPI Linux Installation Script"
             echo "Usage: $0 [options]"
             echo ""
             echo "Options:"
-            echo "  --install-path PATH    Installation directory (default: /opt/apimonitor)"
+            echo "  --install-path PATH    Installation directory (default: /opt/monitoringapi)"
             echo "  --data-path PATH       Data directory (will prompt if not specified)"
+            echo "  --api-port PORT        API port (default: 5000)"
             echo "  --skip-dotnet         Skip .NET installation"
             echo "  --verbose             Verbose output"
             echo "  --non-interactive     Skip user prompts (requires --data-path)"
@@ -128,12 +134,12 @@ prompt_data_path() {
     echo "  - Database files (SQLite)"
     echo "  - Application logs"
     echo "  - Configuration files"
-    echo "  - Temporary API response files"
+    echo "  - Temporary files"
     echo ""
     echo "Recommended locations:"
-    echo "  - /var/apimonitor (system-wide, requires root)"
-    echo "  - /home/\$USER/apimonitor (user-specific)"
-    echo "  - /opt/apimonitor/data (alongside application)"
+    echo "  - /var/monitoringapi (system-wide, requires root)"
+    echo "  - /home/\$USER/monitoringapi (user-specific)"
+    echo "  - /opt/monitoringapi/data (alongside application)"
     echo ""
 
     while true; do
@@ -188,17 +194,17 @@ install_packages() {
     case $DISTRO in
         ubuntu|debian)
             apt-get update
-            apt-get install -y curl wget gpg software-properties-common apt-transport-https
+            apt-get install -y curl wget gpg software-properties-common apt-transport-https nginx
             ;;
         centos|rhel|fedora)
             if command -v dnf &> /dev/null; then
-                dnf install -y curl wget gpg
+                dnf install -y curl wget gpg nginx
             else
-                yum install -y curl wget gpg
+                yum install -y curl wget gpg nginx
             fi
             ;;
         *)
-            log_warn "Unsupported distribution: $DISTRO. Please install curl, wget, and gpg manually."
+            log_warn "Unsupported distribution: $DISTRO. Please install curl, wget, gpg, and nginx manually."
             ;;
     esac
     
@@ -304,7 +310,6 @@ create_directories() {
         "$DATA_PATH/logs"
         "$DATA_PATH/config"
         "$DATA_PATH/temp"
-        "$DATA_PATH/api-responses"
     )
     
     for dir in "${directories[@]}"; do
@@ -323,7 +328,6 @@ create_directories() {
     chmod 755 "$DATA_PATH/logs"
     chmod 755 "$DATA_PATH/config"
     chmod 755 "$DATA_PATH/temp"
-    chmod 755 "$DATA_PATH/api-responses"
     
     log_info "Directory structure created with proper permissions"
 }
@@ -342,7 +346,12 @@ update_config_files() {
             cp "$config_file" "$config_file.backup"
             
             # Update database path using sed
-            sed -i "s|\"Data Source=.*\"|\"Data Source=$DATA_PATH/database/apimonitor.db\"|g" "$config_file"
+            sed -i "s|\"Data Source=.*\"|\"Data Source=$DATA_PATH/database/monitoringapi.db\"|g" "$config_file"
+            
+            # Update API port if needed
+            if grep -q "Urls" "$config_file"; then
+                sed -i "s|\"Urls\":.*|\"Urls\": \"http://localhost:$API_PORT\"|g" "$config_file"
+            fi
             
             log_info "Updated $config_file"
         fi
@@ -355,7 +364,7 @@ create_systemd_service() {
     
     cat > "/etc/systemd/system/$SERVICE_NAME.service" << EOF
 [Unit]
-Description=APIMonitorWorkerService - API Polling and Azure Upload Service
+Description=MonitoringServiceAPI - Monitoring and Management API Service
 After=network.target
 
 [Service]
@@ -365,13 +374,14 @@ TimeoutStopSec=30
 User=$SERVICE_USER
 Group=$SERVICE_USER
 WorkingDirectory=$INSTALL_PATH
-ExecStart=/usr/bin/dotnet $INSTALL_PATH/APIMonitorWorkerService.dll
+ExecStart=/usr/bin/dotnet $INSTALL_PATH/MonitoringServiceAPI.dll
 Restart=always
 RestartSec=10
 KillSignal=SIGINT
 SyslogIdentifier=$SERVICE_NAME
 Environment=DOTNET_PRINT_TELEMETRY_MESSAGE=false
 Environment=ASPNETCORE_ENVIRONMENT=Production
+Environment=ASPNETCORE_URLS=http://localhost:$API_PORT
 
 # Security settings
 NoNewPrivileges=true
@@ -394,10 +404,87 @@ EOF
     log_info "Systemd service created and enabled"
 }
 
+# Function to configure Nginx reverse proxy
+configure_nginx() {
+    log_step "Configuring Nginx reverse proxy..."
+    
+    # Create Nginx configuration
+    cat > "/etc/nginx/sites-available/$SERVICE_NAME" << EOF
+server {
+    listen 80;
+    server_name localhost;
+    
+    # API endpoints
+    location /api/ {
+        proxy_pass http://localhost:$API_PORT;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+        proxy_read_timeout 300;
+        proxy_connect_timeout 300;
+        proxy_send_timeout 300;
+    }
+    
+    # Health check endpoint
+    location /health {
+        proxy_pass http://localhost:$API_PORT;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+    
+    # SignalR hub
+    location /hubs/ {
+        proxy_pass http://localhost:$API_PORT;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+        proxy_read_timeout 86400;
+        proxy_send_timeout 86400;
+    }
+    
+    # Gzip compression
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types
+        text/plain
+        text/css
+        text/xml
+        text/javascript
+        application/javascript
+        application/xml+rss
+        application/json;
+}
+EOF
+
+    # Enable the site and disable default
+    ln -sfn /etc/nginx/sites-available/$SERVICE_NAME /etc/nginx/sites-enabled/$SERVICE_NAME
+    rm -f /etc/nginx/sites-enabled/default
+    
+    # Test and reload Nginx
+    nginx -t && systemctl reload nginx
+    systemctl enable nginx
+    
+    log_info "Nginx configured successfully"
+}
+
 # Function to create deployment guide
 create_deployment_guide() {
     cat > "$INSTALL_PATH/DEPLOYMENT_GUIDE.txt" << EOF
-APIMonitorWorkerService - Deployment Guide
+MonitoringServiceAPI - Deployment Guide
 
 1) Publish application on a build machine:
    dotnet publish -c Release -o publish
@@ -408,9 +495,9 @@ APIMonitorWorkerService - Deployment Guide
 
 3) Configure application:
    - Update database connection in appsettings.json
-   - Database path is set to: $DATA_PATH/database/apimonitor.db
+   - Database path is set to: $DATA_PATH/database/monitoringapi.db
    - Configure Azure Storage connection strings
-   - Add API data source configurations for API polling
+   - API runs on port: $API_PORT
 
 4) Manage systemd service:
    sudo systemctl daemon-reload
@@ -423,10 +510,16 @@ APIMonitorWorkerService - Deployment Guide
 
 6) Configuration:
    - Service runs as user: $SERVICE_USER
-   - Database: $DATA_PATH/database/apimonitor.db
+   - Database: $DATA_PATH/database/monitoringapi.db
    - Logs: $DATA_PATH/logs/
    - Configuration: $DATA_PATH/config/
-   - API responses: $DATA_PATH/api-responses/
+   - API URL: http://localhost:$API_PORT
+   - Nginx proxy: http://localhost/api/
+
+7) API Endpoints:
+   - Health: http://localhost/health
+   - API: http://localhost/api/
+   - Swagger: http://localhost:$API_PORT/swagger (direct access)
 EOF
     log_info "Deployment guide written to: $INSTALL_PATH/DEPLOYMENT_GUIDE.txt"
 }
@@ -436,8 +529,8 @@ create_startup_script() {
     cat > "$INSTALL_PATH/start.sh" << EOF
 #!/bin/bash
 cd "$INSTALL_PATH"
-echo "Starting APIMonitorWorkerService..."
-dotnet APIMonitorWorkerService.dll
+echo "Starting MonitoringServiceAPI..."
+dotnet MonitoringServiceAPI.dll
 EOF
 
     chmod +x "$INSTALL_PATH/start.sh"
@@ -480,9 +573,10 @@ EOF
 
 # Main installation process
 main() {
-    echo -e "${GREEN}=== APIMonitorWorkerService Linux Installation ===${NC}"
+    echo -e "${GREEN}=== MonitoringServiceAPI Linux Installation ===${NC}"
     echo "Install Path: $INSTALL_PATH"
     echo "Service Name: $SERVICE_NAME"
+    echo "API Port: $API_PORT"
     echo ""
 
     # Check prerequisites
@@ -513,10 +607,10 @@ main() {
     create_directories
 
     # Check if application files exist
-    if [ ! -f "$INSTALL_PATH/APIMonitorWorkerService.dll" ]; then
+    if [ ! -f "$INSTALL_PATH/MonitoringServiceAPI.dll" ]; then
         log_warn "Application files not found in $INSTALL_PATH"
         log_info "Please publish the application to this directory:"
-        echo "  cd path/to/APIMonitorWorkerService"
+        echo "  cd path/to/MonitoringServiceAPI"
         echo "  dotnet publish -c Release -o \"$INSTALL_PATH\""
         echo "  sudo chown -R $SERVICE_USER:$SERVICE_USER \"$INSTALL_PATH\""
         echo ""
@@ -529,6 +623,7 @@ main() {
     # Configure application
     update_config_files
     create_systemd_service
+    configure_nginx
     create_startup_script
     setup_log_rotation
     create_deployment_guide
@@ -537,18 +632,22 @@ main() {
     echo -e "${GREEN}=== Installation Complete ===${NC}"
     echo "Application Path: $INSTALL_PATH"
     echo "Data Path: $DATA_PATH"
-    echo "Database: $DATA_PATH/database/apimonitor.db"
+    echo "Database: $DATA_PATH/database/monitoringapi.db"
     echo "Service: $SERVICE_NAME"
+    echo "API Port: $API_PORT"
+    echo "Nginx Proxy: http://localhost/api/"
     echo ""
     echo -e "${BLUE}Next Steps:${NC}"
     echo "1. Configure Azure Storage connection string in appsettings.json"
-    echo "2. Add API data source configurations for API polling"
-    echo "3. Start the service: sudo systemctl start $SERVICE_NAME"
-    echo "4. Check status: sudo systemctl status $SERVICE_NAME"
-    echo "5. Monitor logs: sudo journalctl -u $SERVICE_NAME -f"
+    echo "2. Start the service: sudo systemctl start $SERVICE_NAME"
+    echo "3. Check status: sudo systemctl status $SERVICE_NAME"
+    echo "4. Monitor logs: sudo journalctl -u $SERVICE_NAME -f"
+    echo "5. Test API: curl http://localhost/health"
     echo ""
     echo "For detailed instructions, see: $INSTALL_PATH/DEPLOYMENT_GUIDE.txt"
 }
 
 # Run main function
 main "$@"
+
+
