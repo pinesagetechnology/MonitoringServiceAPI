@@ -167,7 +167,30 @@ main() {
         echo ""
     fi
     
-    # Step 3: Create monitored folder if it doesn't exist
+    # Step 3: Ensure parent directories exist and are accessible
+    log_step "Ensuring parent directories exist and are accessible..."
+    parent_dir=$(dirname "$MONITORED_FOLDER")
+    if [ ! -d "$parent_dir" ]; then
+        log_warn "Parent directory does not exist: $parent_dir"
+        log_info "Creating parent directories..."
+        
+        # Create parent directories with appropriate permissions
+        if [ -n "$OWNER_USER" ] && id "$OWNER_USER" &>/dev/null; then
+            mkdir -p "$parent_dir"
+            chown "$OWNER_USER:$SHARED_GROUP" "$parent_dir"
+            chmod 775 "$parent_dir"
+            log_info "Created parent directory: $parent_dir"
+        else
+            mkdir -p "$parent_dir"
+            chgrp "$SHARED_GROUP" "$parent_dir"
+            chmod 775 "$parent_dir"
+            log_info "Created parent directory: $parent_dir"
+        fi
+    else
+        log_info "Parent directory exists: $parent_dir"
+    fi
+    
+    # Step 4: Create monitored folder if it doesn't exist
     log_step "Ensuring monitored folder exists..."
     if [ ! -d "$MONITORED_FOLDER" ]; then
         mkdir -p "$MONITORED_FOLDER"
@@ -177,7 +200,7 @@ main() {
     fi
     echo ""
     
-    # Step 4: Set proper ownership and permissions
+    # Step 5: Set proper ownership and permissions
     log_step "Setting ownership and permissions..."
     
     # Set ownership (owner:monitor-services)
@@ -206,7 +229,7 @@ main() {
     
     echo ""
     
-    # Step 5: Ensure parent directories are accessible
+    # Step 6: Ensure parent directories are accessible
     log_step "Checking parent directory permissions..."
     current_dir="$MONITORED_FOLDER"
     while [ "$current_dir" != "/" ]; do
@@ -247,7 +270,24 @@ main() {
     done
     echo ""
     
-    # Step 6: Restart services to apply group membership
+    # Step 7: Verify and add service users to shared group
+    log_step "Ensuring service users are in shared group..."
+    
+    for service_user in apimonitor filemonitor; do
+        if id "$service_user" &>/dev/null; then
+            if groups "$service_user" | grep -q "$SHARED_GROUP"; then
+                log_info "$service_user is already in $SHARED_GROUP"
+            else
+                usermod -a -G "$SHARED_GROUP" "$service_user"
+                log_info "Added $service_user to $SHARED_GROUP"
+            fi
+        else
+            log_warn "Service user $service_user does not exist"
+        fi
+    done
+    echo ""
+    
+    # Step 8: Restart services to apply group membership
     log_step "Restarting monitoring services..."
     
     for service in apimonitor filemonitor; do
@@ -263,7 +303,7 @@ main() {
     done
     echo ""
     
-    # Step 7: Verify access
+    # Step 9: Verify access
     log_step "Verifying access..."
     
     # Test if services can access the folder
@@ -308,6 +348,23 @@ main() {
     echo "Group: $SHARED_GROUP"
     echo "Permissions: 775 (directories), 664 (files)"
     echo ""
+    
+    # Show actual permissions
+    if [ -d "$MONITORED_FOLDER" ]; then
+        echo "Actual folder permissions:"
+        ls -ld "$MONITORED_FOLDER"
+        echo ""
+    fi
+    
+    # Show group memberships
+    echo "Service user group memberships:"
+    for service_user in apimonitor filemonitor; do
+        if id "$service_user" &>/dev/null; then
+            echo "  $service_user: $(groups $service_user 2>/dev/null || echo 'unknown')"
+        fi
+    done
+    echo ""
+    
     echo "Services should now be able to:"
     echo "  - Read files from the monitored folder"
     echo "  - Write API responses to the monitored folder"
