@@ -44,6 +44,6 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-builder.Configuration.GetConnectionString("DefaultConnection")?.Replace("Data Source=", "").Replace("\\", "/");
+builder.Configuration.GetConnectionString("FileMonitorConnection")?.Replace("Data Source=", "").Replace("\\", "/");
 
 app.Run();

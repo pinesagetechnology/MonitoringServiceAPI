@@ -200,6 +200,14 @@ install_dotnet() {
 create_user_and_dirs() {
   step "Creating service user and directories..."
   
+  # Create shared group for cross-service database access
+  if ! getent group "monitor-services" &>/dev/null; then
+    groupadd "monitor-services"
+    log "Created shared group: monitor-services"
+  else
+    log "Shared group already exists: monitor-services"
+  fi
+  
   # Create service user if it doesn't exist
   if ! id "$SERVICE_USER" &>/dev/null; then
     useradd --system --home-dir "$INSTALL_PATH" --shell /bin/false "$SERVICE_USER"
@@ -208,16 +216,18 @@ create_user_and_dirs() {
     log "Service user already exists: $SERVICE_USER"
   fi
   
-  # Create installation directory
-  mkdir -p "$INSTALL_PATH" "$INSTALL_PATH/logs"
-  chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_PATH"
-  chmod 755 "$INSTALL_PATH"
+  # Add user to shared group for cross-service database access
+  usermod -a -G "monitor-services" "$SERVICE_USER"
+  log "Added $SERVICE_USER to monitor-services group"
   
-  # Ensure data directory ownership
-  chown -R "$SERVICE_USER:$SERVICE_USER" "$DATA_PATH"
+  # Create installation directory and data directories (no database directory needed)
+  mkdir -p "$INSTALL_PATH" "$INSTALL_PATH/logs" "$DATA_PATH" "$DATA_PATH/logs" "$DATA_PATH/config" "$DATA_PATH/temp"
+  chown -R "$SERVICE_USER:monitor-services" "$INSTALL_PATH"
+  chown -R "$SERVICE_USER:monitor-services" "$DATA_PATH"
+  chmod 755 "$INSTALL_PATH"
   chmod 755 "$DATA_PATH"
   
-  log "User and directories created"
+  log "User and directories created (no database directory - uses other services' databases)"
 }
 
 download_release() {
@@ -302,23 +312,23 @@ configure_application() {
     # Backup original
     cp "$appsettings" "$appsettings.backup"
     
-    # Update connection strings
-    sed -i "s|\"Data Source=.*\"|\"Data Source=$DATA_PATH/database/monitoringapi.db\"|g" "$appsettings"
-    sed -i "s|\"Data Source=.*\"|\"Data Source=$DATA_PATH/database/api-monitor.db\"|g" "$appsettings"
+    # Update connection strings to point to other services' databases
+    sed -i "s|\"FileMonitorConnection\":.*|\"FileMonitorConnection\": \"Data Source=/var/filemonitor/database/filemonitor.db\"|g" "$appsettings"
+    sed -i "s|\"ApiMonitorConnection\":.*|\"ApiMonitorConnection\": \"Data Source=/var/apimonitor/database/apimonitor.db\"|g" "$appsettings"
     
     # Update URLs if present
     if grep -q "Urls" "$appsettings"; then
       sed -i "s|\"Urls\":.*|\"Urls\": \"http://localhost:$API_PORT\"|g" "$appsettings"
     fi
     
-    log "Application settings updated"
+    log "Application settings updated to use other services' databases"
   else
     warn "appsettings.json not found, creating basic configuration"
     cat > "$appsettings" <<EOF
 {
   "ConnectionStrings": {
-    "DefaultConnection": "Data Source=$DATA_PATH/database/monitoringapi.db",
-    "ApiMonitorConnection": "Data Source=$DATA_PATH/database/api-monitor.db"
+    "FileMonitorConnection": "Data Source=/var/filemonitor/database/filemonitor.db",
+    "ApiMonitorConnection": "Data Source=/var/apimonitor/database/apimonitor.db"
   },
   "Logging": {
     "LogLevel": {
@@ -500,16 +510,25 @@ write_deployment_guide() {
 MonitoringServiceAPI Deployment Guide
 =====================================
 
+IMPORTANT: This service does NOT have its own database!
+It provides a REST API to access and manage FileMonitor and APIMonitor services.
+
 Installation Details:
 - Installation Path: $INSTALL_PATH
-- Data Path: $DATA_PATH
+- Data Path: $DATA_PATH (logs/config only, no database)
 - API Port: $API_PORT
 - Service Name: $SERVICE_NAME
 - Service User: $SERVICE_USER
 
-Database Files:
-- Main DB: $DATA_PATH/database/monitoringapi.db
-- API Monitor DB: $DATA_PATH/database/api-monitor.db
+Database Access (External Services):
+- FileMonitor DB: /var/filemonitor/database/filemonitor.db
+- APIMonitor DB: /var/apimonitor/database/apimonitor.db
+- Access via shared group: monitor-services
+
+Prerequisites:
+- FileMonitorWorkerService must be installed first
+- APIMonitorWorkerService must be installed first
+- Both services must be in the monitor-services group
 
 Log Files:
 - Service Logs: journalctl -u $SERVICE_NAME
@@ -545,6 +564,8 @@ Troubleshooting:
 - Check logs: journalctl -u $SERVICE_NAME --since "1 hour ago"
 - Check nginx: nginx -t && systemctl status nginx
 - Check port: netstat -tlnp | grep $API_PORT
+- Verify database access: Check that FileMonitor and APIMonitor services are running
+- Check group membership: groups $SERVICE_USER
 EOF
   
   log "Deployment guide created: $INSTALL_PATH/DEPLOYMENT_GUIDE.txt"

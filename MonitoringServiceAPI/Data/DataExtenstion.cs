@@ -8,8 +8,8 @@ namespace MonitoringServiceAPI.Data
     {
         public static IServiceCollection RegisterDataServices(this IServiceCollection services, IConfiguration configuration)
         {
-            var fileConn = configuration.GetConnectionString("DefaultConnection")
-                ?? throw new InvalidOperationException("DefaultConnection not found");
+            var fileConn = configuration.GetConnectionString("FileMonitorConnection")
+                ?? throw new InvalidOperationException("FileMonitorConnection not found");
 
             var apiConn = configuration.GetConnectionString("ApiMonitorConnection")
                 ?? fileConn; // fallback to file conn if not provided

@@ -111,7 +111,8 @@ create_user_dirs() {
   usermod -a -G "$SHARED_GROUP" "$SERVICE_USER" || true
   log "Added $SERVICE_USER to $SHARED_GROUP group"
   
-  for d in "$INSTALL_PATH" "$INSTALL_PATH/logs" "$DATA_PATH" "$DATA_PATH/database" "$DATA_PATH/logs" "$DATA_PATH/config" "$DATA_PATH/temp"; do
+  # Create directories (no database directory needed for MonitoringAPI)
+  for d in "$INSTALL_PATH" "$INSTALL_PATH/logs" "$DATA_PATH" "$DATA_PATH/logs" "$DATA_PATH/config" "$DATA_PATH/temp"; do
     mkdir -p "$d"
   done
   
@@ -119,17 +120,10 @@ create_user_dirs() {
   chown -R "$SERVICE_USER:$SHARED_GROUP" "$INSTALL_PATH"
   chown -R "$SERVICE_USER:$SHARED_GROUP" "$DATA_PATH"
   
-  # Set permissions - database directory needs group write for SQLite WAL/SHM files
+  # Set permissions (no database directory to set permissions on)
   chmod 755 "$INSTALL_PATH"
   chmod 755 "$DATA_PATH"
-  chmod 775 "$DATA_PATH/database"  # Group write for shared access
   chmod 755 "$DATA_PATH/logs" "$DATA_PATH/config" "$DATA_PATH/temp"
-  
-  # Set permissions on existing database files
-  if ls "$DATA_PATH/database/"*.db 1> /dev/null 2>&1; then
-    chmod 664 "$DATA_PATH/database/"*.db
-    log "Updated permissions on existing database files"
-  fi
 }
 
 update_config() {
@@ -137,7 +131,12 @@ update_config() {
   for f in "$INSTALL_PATH/appsettings.json" "$INSTALL_PATH/appsettings.Development.json"; do
     [ -f "$f" ] || continue
     cp "$f" "$f.backup" || true
-    sed -i "s|\"Data Source=.*\"|\"Data Source=$DATA_PATH/database/monitoringapi.db\"|g" "$f" || true
+    
+    # Update connection strings to point to other services' databases
+    # Note: These paths should be updated to match actual FileMonitor and APIMonitor data paths
+    sed -i "s|\"FileMonitorConnection\":.*|\"FileMonitorConnection\": \"Data Source=/var/filemonitor/database/filemonitor.db\"|g" "$f" || true
+    sed -i "s|\"ApiMonitorConnection\":.*|\"ApiMonitorConnection\": \"Data Source=/var/apimonitor/database/apimonitor.db\"|g" "$f" || true
+    
     if grep -q "Urls" "$f"; then
       sed -i "s|\"Urls\":.*|\"Urls\": \"http://localhost:$API_PORT\"|g" "$f" || true
     fi
@@ -207,12 +206,30 @@ EOF
 write_guide() {
   cat > "$INSTALL_PATH/DEPLOYMENT_GUIDE.txt" <<EOF
 MonitoringServiceAPI Deployment
-Publish: dotnet publish -c Release -o publish
-Copy:    sudo cp -r publish/* $INSTALL_PATH/
-SetOwner: sudo chown -R $SERVICE_USER:$SERVICE_USER $INSTALL_PATH
-DB Path: $DATA_PATH/database/monitoringapi.db
-Port:    $API_PORT (ASPNETCORE_URLS)
-Service: $SERVICE_NAME
+==============================
+
+This service is a REST API that provides configuration management and data access
+for FileMonitorWorkerService and APIMonitorWorkerService. It does NOT have its own database.
+
+Deployment:
+- Publish: dotnet publish -c Release -o publish
+- Copy:    sudo cp -r publish/* $INSTALL_PATH/
+- SetOwner: sudo chown -R $SERVICE_USER:$SERVICE_USER $INSTALL_PATH
+
+Configuration:
+- Port:    $API_PORT (ASPNETCORE_URLS)
+- Service: $SERVICE_NAME
+- Data Path: $DATA_PATH (logs/config only, no database)
+
+Database Access:
+- FileMonitor DB: /var/filemonitor/database/filemonitor.db
+- APIMonitor DB:  /var/apimonitor/database/apimonitor.db
+- Access via shared group: $SHARED_GROUP
+
+Prerequisites:
+- FileMonitorWorkerService must be installed first
+- APIMonitorWorkerService must be installed first
+- Both services must be in the $SHARED_GROUP for database access
 EOF
 }
 
