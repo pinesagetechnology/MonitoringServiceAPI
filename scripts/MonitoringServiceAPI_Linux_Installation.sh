@@ -6,6 +6,7 @@ INSTALL_PATH="/opt/monitoringapi"
 DATA_PATH=""
 SERVICE_NAME="monitoringapi"
 SERVICE_USER="monitoringapi"
+SHARED_GROUP="monitor-services"
 API_PORT=5000
 SKIP_DOTNET=false
 VERBOSE=false
@@ -95,14 +96,40 @@ install_dotnet() {
   dotnet_ok || { err ".NET 8 runtime not available"; exit 1; }
 }
 
+setup_shared_group() {
+  step "Setting up shared group for cross-service database access…"
+  # Create shared group if it doesn't exist
+  getent group "$SHARED_GROUP" &>/dev/null || groupadd "$SHARED_GROUP"
+  log "Shared group '$SHARED_GROUP' ready"
+}
+
 create_user_dirs() {
   step "Creating user and directories…"
   id "$SERVICE_USER" &>/dev/null || useradd --system --home-dir "$INSTALL_PATH" --shell /bin/false "$SERVICE_USER"
+  
+  # Add user to shared group for cross-service database access
+  usermod -a -G "$SHARED_GROUP" "$SERVICE_USER" || true
+  log "Added $SERVICE_USER to $SHARED_GROUP group"
+  
   for d in "$INSTALL_PATH" "$INSTALL_PATH/logs" "$DATA_PATH" "$DATA_PATH/database" "$DATA_PATH/logs" "$DATA_PATH/config" "$DATA_PATH/temp"; do
     mkdir -p "$d"
   done
-  chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_PATH" "$DATA_PATH"
-  chmod 755 "$INSTALL_PATH" "$DATA_PATH"
+  
+  # Set ownership with shared group
+  chown -R "$SERVICE_USER:$SHARED_GROUP" "$INSTALL_PATH"
+  chown -R "$SERVICE_USER:$SHARED_GROUP" "$DATA_PATH"
+  
+  # Set permissions - database directory needs group write for SQLite WAL/SHM files
+  chmod 755 "$INSTALL_PATH"
+  chmod 755 "$DATA_PATH"
+  chmod 775 "$DATA_PATH/database"  # Group write for shared access
+  chmod 755 "$DATA_PATH/logs" "$DATA_PATH/config" "$DATA_PATH/temp"
+  
+  # Set permissions on existing database files
+  if ls "$DATA_PATH/database/"*.db 1> /dev/null 2>&1; then
+    chmod 664 "$DATA_PATH/database/"*.db
+    log "Updated permissions on existing database files"
+  fi
 }
 
 update_config() {
@@ -194,6 +221,7 @@ main() {
   check_root; detect_distro; prompt_data_path; validate_paths
   install_packages
   [ "$SKIP_DOTNET" = true ] || dotnet_ok || install_dotnet
+  setup_shared_group
   create_user_dirs
   if [ ! -f "$INSTALL_PATH/MonitoringServiceAPI.dll" ]; then
     warn "No app files in $INSTALL_PATH."
