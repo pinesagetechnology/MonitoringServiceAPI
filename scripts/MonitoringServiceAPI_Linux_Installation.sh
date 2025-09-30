@@ -24,12 +24,24 @@ while [[ $# -gt 0 ]]; do
     --verbose) VERBOSE=true; shift;;
     --non-interactive) INTERACTIVE=false; shift;;
     -h|--help)
-      echo "MonitoringServiceAPI Linux Installation"
+      echo "MonitoringServiceAPI Linux Installation (Basic Installer)"
+      echo ""
+      echo "This script configures and installs MonitoringServiceAPI assuming"
+      echo "the application files are already present in the install directory."
+      echo ""
+      echo "For complete installation (including downloading/building the app),"
+      echo "use MonitoringServiceAPI_MainInstaller.sh instead."
+      echo ""
+      echo "Options:"
       echo "--install-path PATH   (default: /opt/monitoringapi)"
       echo "--data-path PATH      (required in non-interactive)"
       echo "--api-port PORT       (default: 5000)"
       echo "--skip-dotnet         Skip .NET install"
       echo "--non-interactive     No prompts"
+      echo ""
+      echo "Usage:"
+      echo "1. Copy application files to /opt/monitoringapi/"
+      echo "2. Run: sudo $0 --data-path /var/monitoringapi"
       exit 0;;
     *) echo "Unknown option: $1"; exit 1;;
   esac
@@ -178,13 +190,15 @@ EOF
 }
 
 main() {
-  echo -e "${GREEN}=== MonitoringServiceAPI Install ===${NC}"
+  echo -e "${GREEN}=== MonitoringServiceAPI Basic Installer ===${NC}"
   check_root; detect_distro; prompt_data_path; validate_paths
   install_packages
   [ "$SKIP_DOTNET" = true ] || dotnet_ok || install_dotnet
   create_user_dirs
   if [ ! -f "$INSTALL_PATH/MonitoringServiceAPI.dll" ]; then
-    warn "No app files in $INSTALL_PATH. Publish and copy files, then rerun or start service."
+    warn "No app files in $INSTALL_PATH."
+    warn "This script assumes the application files are already present."
+    warn "Use MonitoringServiceAPI_MainInstaller.sh for complete installation including downloading/building the app."
     write_guide; exit 0
   fi
   update_config
