@@ -240,24 +240,25 @@ main() {
             parent_perms=$(stat -c '%a' "$parent_dir" 2>/dev/null || echo "000")
             verbose_log "Checking $parent_dir (permissions: $parent_perms)"
             
-            # If permissions don't allow group access (like 700), we need to fix them
-            if [[ "$parent_perms" =~ ^7[0-3][0-7]$ ]]; then
-                log_warn "Parent directory $parent_dir has restrictive permissions ($parent_perms)"
+            # Check if others have execute permission (needed to traverse directory)
+            # Extract the last digit (others permissions)
+            others_perm="${parent_perms: -1}"
+            
+            # If others don't have execute permission (last digit is 0,2,4,6), we need to fix it
+            if [[ "$others_perm" =~ ^[0246]$ ]]; then
+                log_warn "Parent directory $parent_dir lacks execute permission for others ($parent_perms)"
                 
-                # Add group read and execute permissions (preserving owner permissions)
-                case "$parent_perms" in
-                    700) new_perms="750" ;;
-                    710) new_perms="750" ;;
-                    711) new_perms="755" ;;
-                    720) new_perms="750" ;;
-                    722) new_perms="755" ;;
-                    730) new_perms="750" ;;
-                    733) new_perms="755" ;;
-                    *) new_perms="755" ;;
+                # Add execute permission for others (add +1 to last digit)
+                first_two="${parent_perms:0:2}"
+                case "$others_perm" in
+                    0) new_perms="${first_two}1" ;;
+                    2) new_perms="${first_two}3" ;;
+                    4) new_perms="${first_two}5" ;;
+                    6) new_perms="${first_two}7" ;;
                 esac
                 
                 chmod "$new_perms" "$parent_dir"
-                log_info "Updated $parent_dir permissions from $parent_perms to $new_perms"
+                log_info "Updated $parent_dir permissions from $parent_perms to $new_perms (added execute for others)"
             fi
         fi
         
