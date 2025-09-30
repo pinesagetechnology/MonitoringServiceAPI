@@ -55,7 +55,7 @@ while [[ $# -gt 0 ]]; do
       echo ""
       echo "Installation Options:"
       echo "  --install-path PATH      Installation directory (default: /opt/monitoringapi)"
-      echo "  --data-path PATH         Data directory for DB/logs/config (required in non-interactive)"
+      echo "  --data-path PATH         Data directory for logs (optional, default: /opt/monitoringapi/logs)"
       echo "  --api-port PORT          API port (default: 5000)"
       echo ""
       echo "Source Options (choose one):"
@@ -99,24 +99,11 @@ detect_distro() {
 }
 
 prompt_data_path() {
-  if [ -n "$DATA_PATH" ]; then return; fi
-  [ "$INTERACTIVE" = true ] || { err "--data-path is required in non-interactive mode"; exit 1; }
-  
-  echo -e "${BLUE}Data Directory Configuration${NC}"
-  echo "This directory will store the database, logs, and configuration files."
-  echo "Example: /var/monitoringapi, /opt/monitoringapi-data"
-  read -p "Enter data directory path: " DATA_PATH
-  
-  [ -n "$DATA_PATH" ] || { err "Data path is required"; exit 1; }
-  
-  # Expand tilde and resolve relative paths
-  DATA_PATH=$(eval echo "$DATA_PATH")
-  if command -v realpath >/dev/null 2>&1; then
-    DATA_PATH=$(realpath -m "$DATA_PATH")
+  # MonitoringServiceAPI doesn't need a data path - use default if not specified
+  if [ -z "$DATA_PATH" ]; then
+    DATA_PATH="$INSTALL_PATH/logs"
+    log "Using default data path: $DATA_PATH (for logs only)"
   fi
-  
-  # Validate absolute path
-  [[ "$DATA_PATH" =~ ^/ ]] || { err "Please use an absolute path"; exit 1; }
 }
 
 validate_paths() {
@@ -130,9 +117,6 @@ validate_paths() {
     err "Cannot write to data directory: $DATA_PATH"
     exit 1
   }
-  
-  # Create subdirectories
-  mkdir -p "$DATA_PATH/database" "$DATA_PATH/logs" "$DATA_PATH/config" "$DATA_PATH/temp"
   
   log "Directory validation completed"
 }
@@ -220,8 +204,8 @@ create_user_and_dirs() {
   usermod -a -G "monitor-services" "$SERVICE_USER"
   log "Added $SERVICE_USER to monitor-services group"
   
-  # Create installation directory and data directories (no database directory needed)
-  mkdir -p "$INSTALL_PATH" "$INSTALL_PATH/logs" "$DATA_PATH" "$DATA_PATH/logs" "$DATA_PATH/config" "$DATA_PATH/temp"
+  # Create installation directory and minimal data directory
+  mkdir -p "$INSTALL_PATH" "$INSTALL_PATH/logs" "$DATA_PATH"
   chown -R "$SERVICE_USER:monitor-services" "$INSTALL_PATH"
   chown -R "$SERVICE_USER:monitor-services" "$DATA_PATH"
   chmod 755 "$INSTALL_PATH"
@@ -369,7 +353,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=false
-ReadWritePaths=$INSTALL_PATH $DATA_PATH
+ReadWritePaths=$INSTALL_PATH
 
 [Install]
 WantedBy=multi-user.target

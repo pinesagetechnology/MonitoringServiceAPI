@@ -35,7 +35,7 @@ while [[ $# -gt 0 ]]; do
       echo ""
       echo "Options:"
       echo "--install-path PATH   (default: /opt/monitoringapi)"
-      echo "--data-path PATH      (required in non-interactive)"
+      echo "--data-path PATH      (optional, default: /opt/monitoringapi/logs)"
       echo "--api-port PORT       (default: 5000)"
       echo "--skip-dotnet         Skip .NET install"
       echo "--non-interactive     No prompts"
@@ -56,13 +56,11 @@ detect_distro() {
 }
 
 prompt_data_path() {
-  if [ -n "$DATA_PATH" ]; then return; fi
-  [ "$INTERACTIVE" = true ] || { err "--data-path required in non-interactive"; exit 1; }
-  echo -e "${BLUE}Data directory (DB/logs/config)${NC}"
-  read -p "Enter data directory (e.g., /var/monitoringapi): " DATA_PATH
-  [ -n "$DATA_PATH" ] || { err "Data path required"; exit 1; }
-  DATA_PATH=$(eval echo "$DATA_PATH"); command -v realpath >/dev/null 2>&1 && DATA_PATH=$(realpath -m "$DATA_PATH")
-  [[ "$DATA_PATH" =~ ^/ ]] || { err "Use absolute path"; exit 1; }
+  # MonitoringServiceAPI doesn't need a data path - use default if not specified
+  if [ -z "$DATA_PATH" ]; then
+    DATA_PATH="$INSTALL_PATH/logs"
+    log_info "Using default data path: $DATA_PATH (for logs only)"
+  fi
 }
 
 validate_paths() {
@@ -111,19 +109,14 @@ create_user_dirs() {
   usermod -a -G "$SHARED_GROUP" "$SERVICE_USER" || true
   log "Added $SERVICE_USER to $SHARED_GROUP group"
   
-  # Create directories (no database directory needed for MonitoringAPI)
-  for d in "$INSTALL_PATH" "$INSTALL_PATH/logs" "$DATA_PATH" "$DATA_PATH/logs" "$DATA_PATH/config" "$DATA_PATH/temp"; do
-    mkdir -p "$d"
-  done
+  # Create minimal directories (MonitoringServiceAPI doesn't need much)
+  mkdir -p "$INSTALL_PATH" "$INSTALL_PATH/logs"
   
   # Set ownership with shared group
   chown -R "$SERVICE_USER:$SHARED_GROUP" "$INSTALL_PATH"
-  chown -R "$SERVICE_USER:$SHARED_GROUP" "$DATA_PATH"
   
-  # Set permissions (no database directory to set permissions on)
+  # Set permissions
   chmod 755 "$INSTALL_PATH"
-  chmod 755 "$DATA_PATH"
-  chmod 755 "$DATA_PATH/logs" "$DATA_PATH/config" "$DATA_PATH/temp"
 }
 
 update_config() {
@@ -165,7 +158,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=false
-ReadWritePaths=$INSTALL_PATH $DATA_PATH
+ReadWritePaths=$INSTALL_PATH
 
 [Install]
 WantedBy=multi-user.target
