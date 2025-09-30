@@ -83,8 +83,8 @@ while [[ $# -gt 0 ]]; do
             echo "  4. Ensures service users can access the folder"
             echo ""
             echo "Example:"
-            echo "  sudo $0 --folder /home/alirk/workspace/test1"
-            echo "  sudo $0 --folder /home/alirk/workspace/test1 --owner alirk"
+            echo "  sudo $0 --folder /home/username/workspace/monitored"
+            echo "  sudo $0 --folder /home/username/workspace/monitored --owner username"
             exit 0
             ;;
         *)
